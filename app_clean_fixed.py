@@ -92,7 +92,18 @@ Boost ဈေးနှုန်း (Service fee အပါ):
 $5=29,000ks | $10=57,500ks | $15=86,250ks | $20=115,000ks | $50=287,500ks | $100=575,000ks
 (ဈေးနှုန်း ပြောင်းနိုင်သည် | ငွေလွဲပြီး Boost စတင်)
 
-ဆက်သွယ်ရန်: ဖုန်း 09-400-175-900 | Viber 098-990-033-15"""
+ဆက်သွယ်ရန်: ဖုန်း 09-400-175-900 | Viber 098-990-033-15
+
+ငွေလွဲ Account များ (ငွေလွဲမည်/Kpay/account number မေးလာလျှင် အောက်ပါအတိုင်း ပြောပြပါ):
+KBZ Pay - 09420933977 | Name: Khaing Zin Latt
+UAB Pay - 09899003315 | Name: Yan Lin Htet
+Wave Pay - 09899003315 | Name: Yan Lin Htet
+AYA Pay - 09899003315 | Name: Yan Lin Htet
+AYA Saving Bank: 20015034608 | Name: Yan Lin Htet
+KBZ Saving: 13330113300744501 | Name: Yan Lin Htet
+KBZ Special: 12651113300744501 | Name: Yan Lin Htet
+
+ငွေလွဲပြီးရင် Transaction History Screenshot နဲ့ ID Number ပေးပို့ပေးပါဟု မေ့မမေ့ ပြောပါ 🙏"""
 
 # Track processed message IDs to avoid duplicates
 processed_messages = set()
