@@ -225,7 +225,20 @@ def handle_message(sender_id, message):
     if not message_text:
         attachments = message.get("attachments", [])
         if attachments and not is_bot_paused(sender_id):
-            send_message(sender_id, "ပုံ/ဖိုင် ရရှိပါတယ်ရှင့်! ဘာကူညီပေးရမလဲ? 😊")
+            # Check if it's an image (likely a payment screenshot)
+            is_image = any(
+                att.get("type") in ("image", "photo")
+                for att in attachments
+            )
+            if is_image:
+                payment_reply = (
+                    "ဟုတ်ကဲ့ရှင့်\n"
+                    "ကျေးဇူးတင်ပါတယ်နော် 🙏\n"
+                    "ငွေလေးဝင်မဝင်စစ်ဆေးပြီးအကြောင်းပြန်ပေးပါမယ်ရှင့်"
+                )
+                send_message(sender_id, payment_reply)
+            else:
+                send_message(sender_id, "ပုံ/ဖိုင် ရရှိပါတယ်ရှင့်! ဘာကူညီပေးရမလဲ? 🙏")
         return
     
     logger.info(f"Processing message from {sender_id}: {message_text}")
