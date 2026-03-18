@@ -128,6 +128,7 @@ KBZ Special: 12651113300744501 | Name: Yan Lin Htet
 
 # Track processed message IDs to avoid duplicates
 processed_messages = set()
+processed_messages_lock = threading.Lock()
 MAX_PROCESSED = 1000
 
 # ============================
@@ -208,14 +209,14 @@ def send_typing_indicator(recipient_id, action="typing_on"):
 
 def handle_message(sender_id, message):
     mid = message.get("mid", "")
-    if mid and mid in processed_messages:
-        logger.info(f"Duplicate message {mid}, skipping")
-        return
-    
-    if mid:
-        processed_messages.add(mid)
-        if len(processed_messages) > MAX_PROCESSED:
-            processed_messages.clear()
+    with processed_messages_lock:
+        if mid and mid in processed_messages:
+            logger.info(f"Duplicate message {mid}, skipping")
+            return
+        if mid:
+            processed_messages.add(mid)
+            if len(processed_messages) > MAX_PROCESSED:
+                processed_messages.clear()
     
     if message.get("is_echo"):
         logger.info("Skipping echo message")
@@ -225,20 +226,29 @@ def handle_message(sender_id, message):
     if not message_text:
         attachments = message.get("attachments", [])
         if attachments and not is_bot_paused(sender_id):
-            # Check if it's an image (likely a payment screenshot)
-            is_image = any(
-                att.get("type") in ("image", "photo")
+            # Determine attachment type
+            att_types = [att.get("type", "") for att in attachments]
+            logger.info(f"Attachment types from {sender_id}: {att_types}")
+            
+            # Thumbs-up sticker / like sticker - treat as simple acknowledgement
+            is_sticker = any(att.get("type") == "sticker" for att in attachments)
+            # Real image (not sticker) - treat as payment screenshot
+            is_real_image = any(
+                att.get("type") in ("image", "photo") and not att.get("sticker_id")
                 for att in attachments
             )
-            if is_image:
+            
+            if is_sticker:
+                # Thumbs up or any sticker - just acknowledge
+                send_message(sender_id, "ဟုတ်ကဲ့ရှင့် 🙏")
+            elif is_real_image:
                 payment_reply = (
                     "ဟုတ်ကဲ့ရှင့်\n"
                     "ကျေးဇူးတင်ပါတယ်နော် 🙏\n"
                     "ငွေလေးဝင်မဝင်စစ်ဆေးပြီးအကြောင်းပြန်ပေးပါမယ်ရှင့်"
                 )
                 send_message(sender_id, payment_reply)
-            else:
-                send_message(sender_id, "ပုံ/ဖိုင် ရရှိပါတယ်ရှင့်! ဘာကူညီပေးရမလဲ? 🙏")
+            # For other attachment types (video, audio, file), do nothing
         return
     
     logger.info(f"Processing message from {sender_id}: {message_text}")
@@ -254,10 +264,11 @@ def handle_message(sender_id, message):
 def handle_echo_message(recipient_id, message):
     mid = message.get("mid", "")
     echo_key = f"echo_{mid}"
-    if echo_key in processed_messages:
-        return
-    if mid:
-        processed_messages.add(echo_key)
+    with processed_messages_lock:
+        if echo_key in processed_messages:
+            return
+        if mid:
+            processed_messages.add(echo_key)
     
     logger.info(f"Admin replied to user {recipient_id}, pausing bot for {HUMAN_TAKEOVER_MINUTES} minutes")
     pause_bot_for_user(recipient_id)
