@@ -1,0 +1,308 @@
+'''import os
+import sys
+import json
+import logging
+import requests
+import threading
+import time
+from flask import Flask, request, jsonify
+from openai import OpenAI
+
+# ============================
+# Configuration
+# ============================
+app = Flask(__name__)
+
+# Logging setup
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    stream=sys.stdout
+)
+logger = logging.getLogger(__name__)
+
+# Environment variables
+PAGE_ACCESS_TOKEN = os.environ.get("PAGE_ACCESS_TOKEN", "")
+VERIFY_TOKEN = os.environ.get("VERIFY_TOKEN", "aio_chatbot_verify_2024")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+PAGE_ID = os.environ.get("PAGE_ID", "109802151273077")
+
+# OpenAI client
+client = None
+if OPENAI_API_KEY:
+    try:
+        client = OpenAI(api_key=OPENAI_API_KEY)
+        logger.info("OpenAI client initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize OpenAI client: {e}")
+
+# Graph API version
+GRAPH_API_VERSION = "v21.0"
+
+# ============================
+# Conversation History
+# ============================
+conversation_history = {}
+conversation_history_lock = threading.Lock()
+MAX_HISTORY_LEN = 10 # Store last 5 user/bot message pairs
+
+# ============================
+# Human Takeover Feature
+# ============================
+HUMAN_TAKEOVER_MINUTES = 10
+paused_users = {}
+paused_users_lock = threading.Lock()
+
+def is_bot_paused(user_id):
+    with paused_users_lock:
+        if user_id in paused_users:
+            paused_at = paused_users[user_id]
+            elapsed = time.time() - paused_at
+            if elapsed < HUMAN_TAKEOVER_MINUTES * 60:
+                return True
+            else:
+                del paused_users[user_id]
+                logger.info(f"Bot resumed for user {user_id} after {HUMAN_TAKEOVER_MINUTES} minutes")
+    return False
+
+def pause_bot_for_user(user_id):
+    with paused_users_lock:
+        paused_users[user_id] = time.time()
+    logger.info(f"Bot PAUSED for user {user_id} for {HUMAN_TAKEOVER_MINUTES} minutes")
+
+# ============================
+# System Prompt v4.0
+# ============================
+SYSTEM_PROMPT = """သင်သည် "All in One Digital Marketing" ၏ Customer Service Assistant ဖြစ်သည်။
+
+အရေးကြီးဆုံး စည်းကမ်းများ:
+- Robot မဟုတ်ဘဲ လူတစ်ယောက်လို သဘာဝကျကျ၊ ယဉ်ကျေးစွာ ဖြေပါ
+- မြန်မာဘာသာဖြင့်သာ တိုတောင်းရှင်းလင်းစွာ ဖြေပါ (၂-၃ ကြောင်းသာ)
+- Client ပြောထားတဲ့ စကားဝိုင်းတစ်ခုလုံးကို သေချာဖတ်ပြီး context ကို နားလည်မှ ဖြေပါ
+- မသိရင်၊ မသေချာရင်၊ အလုပ်နဲ့မဆိုင်ရင် "ဟုတ်ကဲ့ရှင့် အကြောင်းပြန်ပေးပါမယ်" လို့သာ ပြောပါ။ به هیچ وجه حدس نزنید.
+- "ရှင့်" တစ်ခုထဲ မသုံးပါနဲ့၊ "ဟုတ်ကဲ့ရှင့်" လို့သာ သုံးပါ
+- Client က "Add ထားပြီ", "ပြီးပြီ", "ဟုတ်ကဲ့" လို့ ပြောရင် ငွေလွဲ/screenshot တောင်းခံမနေပါနဲ့ - "ဟုတ်ကဲ့ရှင့် 🙏" လို့သာ ဖြေပါ
+- Client က Facebook page link (facebook.com/...) ပို့လာရင် "ဟုတ်ကဲ့ရှင့် ကြည့်ပေးပါမယ်နော် 🙏" လို့သာ ပြန်ဖြေပါ
+- ငွေလွဲ account ကို မမေးဘဲ ကိုယ်တိုင် မပေးပါနဲ့ - ငွေလွဲမည်/account number/Kpay မေးမှသာ ပေးပါ
+
+ကုမ္ပဏီ: All in One Digital Marketing
+- 2021 ကနေ Meta Certified Media Buying Professional များဖြင့် ဝန်ဆောင်မှုပေးနေ
+- လုပ်ငန်း ၁၀၀ ကျော် ကူညီပေးနေ
+
+ဝန်ဆောင်မှုများ:
+Media Buying 🚀 | Content Writing ✍️ | Logo & Design ™️ | Social Media Design 🖼️ | Motion Video 🎬 | Page Setup | Error Fix 🔧 | Follower+++ | FB Class 💻 | TikTok Class | TikTok Service 🎵 | Monthly Package 📦 | Blue Mark 🔵 | Monetization 💸 | Consultation 🧑‍💻
+
+Boost ဈေးနှုန်း (Service fee အပါ):
+$5=29,000ks | $10=57,500ks | $15=86,250ks | $20=115,000ks | $50=287,500ks | $100=575,000ks
+(ဈေးနှုန်း ပြောင်းနိုင်သည် | ငွေလွဲပြီး Boost စတင်)
+
+ဆက်သွယ်ရန်: ဖုန်း 09-400-175-900 | Viber 098-990-033-15
+
+ငွေလွဲ Account များ (ငွေလွဲမည်/Kpay/account number မေးလာလျှင် အောက်ပါအတိုင်း ပြောပြပါ):
+KBZ Pay - 09420933977 | Name: Khaing Zin Latt
+UAB Pay - 09899003315 | Name: Yan Lin Htet
+Wave Pay - 09899003315 | Name: Yan Lin Htet
+AYA Pay - 09899003315 | Name: Yan Lin Htet
+AYA Saving Bank: 20015034608 | Name: Yan Lin Htet
+KBZ Saving: 13330113300744501 | Name: Yan Lin Htet
+KBZ Special: 12651113300744501 | Name: Yan Lin Htet
+
+ငွေလွဲပြီးရင် Transaction History Screenshot နဲ့ ID Number ပေးပို့ပေးပါဟု မေ့မမေ့ ပြောပါ 🙏"""
+
+# Track processed message IDs to avoid duplicates
+processed_messages = set()
+MAX_PROCESSED = 1000
+
+# ============================
+# Helper Functions
+# ============================
+def get_ai_response(user_id, user_message):
+    if not client:
+        logger.error("OpenAI client not initialized")
+        return "မင်္ဂလာပါရှင့်! ခဏစောင့်ပေးပါ၊ မကြာမီ ပြန်ဆက်သွယ်ပေးပါမယ် 🙏"
+
+    with conversation_history_lock:
+        # Get history for this user
+        history = conversation_history.get(user_id, [])
+        
+        # Add current user message to history
+        history.append({"role": "user", "content": user_message})
+        
+        # Trim history to MAX_HISTORY_LEN
+        if len(history) > MAX_HISTORY_LEN:
+            history = history[-MAX_HISTORY_LEN:]
+        
+        # Update history
+        conversation_history[user_id] = history
+
+    messages_for_api = [
+        {"role": "system", "content": SYSTEM_PROMPT}
+    ] + history
+
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=messages_for_api,
+            max_tokens=200,
+            temperature=0.5, # Reduced for more deterministic responses
+            timeout=20
+        )
+        ai_response = response.choices[0].message.content.strip()
+        
+        # Add AI response to history
+        with conversation_history_lock:
+            conversation_history[user_id].append({"role": "assistant", "content": ai_response})
+            
+        return ai_response
+
+    except Exception as e:
+        logger.error(f"OpenAI API error: {e}")
+        return "မင်္ဂလာပါရှင့်! ခဏစောင့်ပေးပါ၊ မကြာမီ ပြန်ဆက်သွယ်ပေးပါမယ် 🙏"
+
+def send_message(recipient_id, message_text):
+    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/me/messages"
+    params = {"access_token": PAGE_ACCESS_TOKEN}
+    payload = {
+        "recipient": {"id": recipient_id},
+        "message": {"text": message_text},
+        "messaging_type": "RESPONSE"
+    }
+    
+    try:
+        response = requests.post(url, params=params, json=payload, timeout=10)
+        if response.status_code == 200:
+            logger.info(f"Message sent successfully to {recipient_id}")
+        else:
+            logger.error(f"Send message error: {response.status_code} - {response.text}")
+    except Exception as e:
+        logger.error(f"Send message exception: {e}")
+
+def send_typing_indicator(recipient_id, action="typing_on"):
+    url = f"https://graph.facebook.com/{GRAPH_API_VERSION}/me/messages"
+    params = {"access_token": PAGE_ACCESS_TOKEN}
+    payload = {
+        "recipient": {"id": recipient_id},
+        "sender_action": action
+    }
+    try:
+        requests.post(url, params=params, json=payload, timeout=5)
+    except Exception as e:
+        logger.error(f"Typing indicator error: {e}")
+
+def handle_message(sender_id, message):
+    mid = message.get("mid", "")
+    if mid and mid in processed_messages:
+        logger.info(f"Duplicate message {mid}, skipping")
+        return
+    
+    if mid:
+        processed_messages.add(mid)
+        if len(processed_messages) > MAX_PROCESSED:
+            processed_messages.clear()
+    
+    if message.get("is_echo"):
+        logger.info("Skipping echo message")
+        return
+    
+    message_text = message.get("text", "")
+    if not message_text:
+        attachments = message.get("attachments", [])
+        if attachments and not is_bot_paused(sender_id):
+            send_message(sender_id, "ပုံ/ဖိုင် ရရှိပါတယ်ရှင့်! ဘာကူညီပေးရမလဲ? 😊")
+        return
+    
+    logger.info(f"Processing message from {sender_id}: {message_text}")
+    
+    if is_bot_paused(sender_id):
+        logger.info(f"Bot is paused for user {sender_id}, skipping AI response")
+        return
+    
+    send_typing_indicator(sender_id)
+    ai_response = get_ai_response(sender_id, message_text)
+    send_message(sender_id, ai_response)
+
+def handle_echo_message(recipient_id, message):
+    mid = message.get("mid", "")
+    echo_key = f"echo_{mid}"
+    if echo_key in processed_messages:
+        return
+    if mid:
+        processed_messages.add(echo_key)
+    
+    logger.info(f"Admin replied to user {recipient_id}, pausing bot for {HUMAN_TAKEOVER_MINUTES} minutes")
+    pause_bot_for_user(recipient_id)
+
+def handle_postback(sender_id, payload):
+    logger.info(f"Postback from {sender_id}: {payload}")
+    if is_bot_paused(sender_id):
+        logger.info(f"Bot is paused for user {sender_id}, skipping postback response")
+        return
+    
+    if payload == "GET_STARTED":
+        welcome_msg = "မင်္ဂလာပါရှင့်! All in One Digital Marketing မှ ကြိုဆိုပါတယ် 🙏\n\nBoost, Design, Marketing တွေအတွက် ဘာမေးချင်ပါသလဲ?"
+        send_message(sender_id, welcome_msg)
+    else:
+        ai_response = get_ai_response(sender_id, f"User clicked: {payload}")
+        send_message(sender_id, ai_response)
+
+# ============================
+# Flask Routes
+# ============================
+@app.route("/webhook", methods=["GET"])
+def verify_webhook():
+    mode = request.args.get("hub.mode")
+    token = request.args.get("hub.verify_token")
+    challenge = request.args.get("hub.challenge")
+    
+    if mode == "subscribe" and token == VERIFY_TOKEN:
+        logger.info("Webhook verified successfully!")
+        return challenge, 200
+    else:
+        logger.warning(f"Webhook verification failed. Mode: {mode}, Token: {token}")
+        return "Verification failed", 403
+
+@app.route("/webhook", methods=["POST"])
+def webhook():
+    logger.info("=== WEBHOOK POST RECEIVED ===_v4")
+    data = request.get_json()
+    
+    if data.get("object") == "page":
+        for entry in data.get("entry", []):
+            for event in entry.get("messaging", []):
+                sender_id = event.get("sender", {}).get("id")
+                recipient_id = event.get("recipient", {}).get("id")
+                if not sender_id:
+                    continue
+                
+                if "message" in event:
+                    message = event["message"]
+                    if message.get("is_echo"):
+                        if recipient_id and recipient_id != PAGE_ID:
+                            threading.Thread(target=handle_echo_message, args=(recipient_id, message)).start()
+                    else:
+                        threading.Thread(target=handle_message, args=(sender_id, message)).start()
+                elif "postback" in event:
+                    payload = event["postback"].get("payload", "")
+                    threading.Thread(target=handle_postback, args=(sender_id, payload)).start()
+    
+    return "OK", 200
+
+@app.route("/", methods=["GET"])
+def home():
+    return jsonify({
+        "status": "running",
+        "bot": "All in One Digital Marketing Chatbot",
+        "version": "4.0",
+        "openai": "configured" if client else "not configured",
+        "paused_users": len(paused_users),
+        "history_users": len(conversation_history)
+    })
+
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({"status": "healthy", "timestamp": time.time()}), 200
+
+if __name__ == '__main__':
+    # This part is for local testing, not for production on Render
+    app.run(debug=True, port=5001)
+'''
