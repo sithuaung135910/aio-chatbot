@@ -1,4 +1,4 @@
-'''import os
+import os
 import sys
 import json
 import logging
@@ -305,4 +305,4 @@ def health():
 if __name__ == '__main__':
     # This part is for local testing, not for production on Render
     app.run(debug=True, port=5001)
-'''
+
