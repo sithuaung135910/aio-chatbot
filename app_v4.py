@@ -88,7 +88,15 @@ def pause_bot_for_user(user_id):
     logger.info(f"Bot PAUSED for user {user_id} for {HUMAN_TAKEOVER_MINUTES} minutes")
 
 # ============================
-# System Prompt v4.0
+# Message Grouping (Delay before reply)
+# ============================
+# pending_timers: user_id -> (timer, [messages])
+pending_timers = {}
+pending_timers_lock = threading.Lock()
+MESSAGE_GROUP_DELAY = 5  # seconds to wait for follow-up messages
+
+# ============================
+# System Prompt v4.17
 # ============================
 SYSTEM_PROMPT = """သင်သည် "All in One Digital Marketing" ၏ Customer Service Assistant ဖြစ်သည်။
 
@@ -101,6 +109,7 @@ SYSTEM_PROMPT = """သင်သည် "All in One Digital Marketing" ၏ Custome
 - "ဟုတ်ပါသည်" ဟု လုံးဝမသုံးပါနဲ့၊ "ဟုတ်ပါတယ်ရှင့်" လို့သာ သုံးပါ
 - "ဘာအကူအညီလိုပါသလဲ" ဟု လုံးဝမမေးပါနဲ့၊ "ဘာများကူညီပေးရမလဲရှင့်" လို့သာ မေးပါ
 - "မေတ္တာပြုပြီး" ဆိုသောစကားကို လုံးဝမသုံးပါနဲ့။ ယင်းအစား "သေချာလေး ရှင်းပြပေးပါမယ်ရှင့်" သို့မဟုတ် "သေချာလေး ဖြေကြားပေးပါမယ်ရှင့်" ဟု သုံးပါ
+- "သင်" ဆိုသောစကားလုံးကို လုံးဝမသုံးပါနဲ့။ "သင့် Page", "သင်၏" စသည်တို့ကို "ကိုယ့် Page", "ကိုယ့်" ဟု အစားထိုးသုံးပါ
 - Client က "Add ထားပြီ", "ပြီးပြီ", "ဟုတ်ကဲ့" လို့ ပြောရင် ငွေလွဲ/screenshot တောင်းခံမနေပါနဲ့ - "ဟုတ်ကဲ့ရှင့် 🙏" လို့သာ ဖြေပါ
 - Client က Facebook page link (facebook.com/...) ပို့လာရင် "ဟုတ်ကဲ့ရှင့် ကြည့်ပေးပါမယ်နော် 🙏" လို့သာ ပြန်ဖြေပါ
 - ငွေလွဲ account ကို မမေးဘဲ ကိုယ်တိုင် မပေးပါနဲ့ - ငွေလွဲမည်/account number/Kpay မေးမှသာ ပေးပါ
@@ -109,6 +118,7 @@ SYSTEM_PROMPT = """သင်သည် "All in One Digital Marketing" ၏ Custome
 - Client က Account ကျသွားလို့၊ Account ပိတ်ခံရလို့၊ Page ဆယ်ချင်လို့၊ Page error fix ဖို့၊ Error fix service မေးလာရင် "ဟုတ်ကဲ့ရှင့် အကြောင်းပြန်ပေးပါမယ်" လို့သာ ဖြေပါ။ ငွေပမာဏ မတောင်းပါနဲ့၊ ဈေးနှုန်းမပြောပါနဲ့
 - Client က "Live Boost"၊ "Live ကို Boost"၊ "Live လွှင့်နေချိန် Boost" ဟု တိတိကျကျ Live နှင့်ပတ်သက်ပြီး Boost မေးလာရင်သာ "ဟုတ်ကဲ့ Live Boost လို့ရပါတယ်ရှင့်\nစမယ့်အချိန်လေးပြောပေးနော်ရှင့်" လို့ ဖြေပါ
 - Client က "Boost မယ်"၊ "Boost ထပ်လုပ်မယ်"၊ "Boost အပ်မယ်"၊ "Boost လုပ်ချင်တယ်"၊ "Boost တင်မယ်"၊ "Post Boost"၊ "Page Boost" စသဖြင့် Live မပါဘဲ Boost ပဲပြောလာရင် "ဟုတ်ကဲ့ရပါတယ်ရှင့်" လို့သာ ဖြေပါ - Live Boost reply မပေးပါနဲ့
+- Client က "မ run တော့ဘူး"၊ "ခဏနားမယ်"၊ "မ run သေးဘူး"၊ "service မအပ်သေးဘူး"၊ "ခဏနားဦးမယ်"၊ "နောက်မှ"၊ "ခဏနေဦးမယ်" စသဖြင့် service မအပ်သေးဘဲ ခဏနားမည်ဟု ပြောလာရင် "ဟုတ်ကဲ့ရှင့် ဘာမှာ အဆင်မပြေတာလေးရှိလို့လဲနော်" လို့သာ ဖြေပါ
 - Client က Online Class၊ သင်တန်း၊ Course၊ Facebook Advertising Class၊ TikTok Advertising Class မေးလာရင် အောက်ပါ reply ကိုသာ ဖြေပါ - ဈေးနှုန်း မပြောပါနဲ့ Admin တွေ ဖြေပါမည်:
   "ဟုတ်ကဲ့ရှင့်
 Facebook Advertising Class နဲ့
@@ -152,6 +162,14 @@ KBZ Pay (KPay) - 09420933977 | Name: Khaing Zin Latt
 processed_messages = set()
 processed_messages_lock = threading.Lock()
 MAX_PROCESSED = 1000
+
+# ============================
+# Message Grouping (Delay before reply)
+# ============================
+# pending_timers: user_id -> {'timer': Timer, 'messages': [str]}
+pending_timers = {}
+pending_timers_lock = threading.Lock()
+MESSAGE_GROUP_DELAY = 5  # seconds to wait for follow-up messages before replying
 
 # ============================
 # Helper Functions
@@ -229,6 +247,29 @@ def send_typing_indicator(recipient_id, action="typing_on"):
     except Exception as e:
         logger.error(f"Typing indicator error: {e}")
 
+def process_grouped_messages(sender_id, messages):
+    """Called after MESSAGE_GROUP_DELAY seconds with all buffered messages from a user."""
+    # Clean up pending timer entry
+    with pending_timers_lock:
+        pending_timers.pop(sender_id, None)
+
+    if is_bot_paused(sender_id):
+        logger.info(f"Bot is paused for user {sender_id}, skipping grouped response")
+        return
+
+    if is_lunch_break():
+        logger.info(f"Lunch break time - sending lunch break reply to {sender_id}")
+        send_message(sender_id, LUNCH_BREAK_REPLY)
+        return
+
+    # Combine all buffered messages into one context string
+    combined_text = "\n".join(messages)
+    logger.info(f"Processing grouped message from {sender_id}: {combined_text}")
+
+    send_typing_indicator(sender_id)
+    ai_response = get_ai_response(sender_id, combined_text)
+    send_message(sender_id, ai_response)
+
 def handle_message(sender_id, message):
     mid = message.get("mid", "")
     with processed_messages_lock:
@@ -269,21 +310,25 @@ def handle_message(sender_id, message):
             # For other attachment types (video, audio, file), do nothing
         return
     
-    logger.info(f"Processing message from {sender_id}: {message_text}")
-    
-    if is_bot_paused(sender_id):
-        logger.info(f"Bot is paused for user {sender_id}, skipping AI response")
-        return
-    
-    # Check if it's Lunch Break time (Myanmar Time 12:00 PM - 1:00 PM)
-    if is_lunch_break():
-        logger.info(f"Lunch break time - sending lunch break reply to {sender_id}")
-        send_message(sender_id, LUNCH_BREAK_REPLY)
-        return
-    
-    send_typing_indicator(sender_id)
-    ai_response = get_ai_response(sender_id, message_text)
-    send_message(sender_id, ai_response)
+    logger.info(f"Buffering message from {sender_id}: {message_text}")
+
+    # Message grouping: cancel existing timer, add message, restart timer
+    with pending_timers_lock:
+        entry = pending_timers.get(sender_id)
+        if entry:
+            entry['timer'].cancel()
+            entry['messages'].append(message_text)
+        else:
+            pending_timers[sender_id] = {'timer': None, 'messages': [message_text]}
+
+        msgs_snapshot = pending_timers[sender_id]['messages']
+        t = threading.Timer(
+            MESSAGE_GROUP_DELAY,
+            process_grouped_messages,
+            args=(sender_id, list(msgs_snapshot))
+        )
+        pending_timers[sender_id]['timer'] = t
+        t.start()
 
 def handle_echo_message(user_id, message):
     """Called when admin/page sends a message to a user. Pause bot for that user."""
@@ -299,6 +344,13 @@ def handle_echo_message(user_id, message):
     echo_text = message.get("text", "").strip()
     logger.info(f"Admin sent message to user {user_id}: '{echo_text}' - pausing bot for {HUMAN_TAKEOVER_MINUTES} minutes")
     
+    # Cancel any pending timer for this user since admin is taking over
+    with pending_timers_lock:
+        entry = pending_timers.pop(user_id, None)
+        if entry and entry['timer']:
+            entry['timer'].cancel()
+            logger.info(f"Cancelled pending timer for user {user_id} due to admin takeover")
+
     # Pause bot for ANY admin message (hi, or any other text)
     pause_bot_for_user(user_id)
 
@@ -333,7 +385,7 @@ def verify_webhook():
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    logger.info("=== WEBHOOK POST RECEIVED ===_v4.12")
+    logger.info("=== WEBHOOK POST RECEIVED ===_v4.17")
     data = request.get_json()
     
     if data.get("object") == "page":
@@ -377,7 +429,7 @@ def home():
     return jsonify({
         "status": "running",
         "bot": "All in One Digital Marketing Chatbot",
-        "version": "4.0",
+        "version": "4.17",
         "openai": "configured" if client else "not configured",
         "paused_users": len(paused_users),
         "history_users": len(conversation_history)
@@ -390,4 +442,3 @@ def health():
 if __name__ == '__main__':
     # This part is for local testing, not for production on Render
     app.run(debug=True, port=5001)
-
