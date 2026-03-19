@@ -122,14 +122,10 @@ TikTok Advertising Class နှစ်ခုရှိပါမယ်နော်
 
 ဆက်သွယ်ရန်: ဖုန်း 09-400-175-900 | Viber 098-990-033-15
 
-ငွေလွဲ Account များ (ငွေလွဲမည်/Kpay/account number မေးလာလျှင် အောက်ပါအတိုင်း ပြောပြပါ):
-KBZ Pay - 09420933977 | Name: Khaing Zin Latt
-UAB Pay - 09899003315 | Name: Yan Lin Htet
-Wave Pay - 09899003315 | Name: Yan Lin Htet
-AYA Pay - 09899003315 | Name: Yan Lin Htet
-AYA Saving Bank: 20015034608 | Name: Yan Lin Htet
-KBZ Saving: 13330113300744501 | Name: Yan Lin Htet
-KBZ Special: 12651113300744501 | Name: Yan Lin Htet
+ငွေလွဲ Account (ငွေလွဲမည်/Kpay/account number မေးလာလျှင် အောက်ပါ KPay နံပါတ်ကိုသာ ပေးပါ):
+KBZ Pay (KPay) - 09420933977 | Name: Khaing Zin Latt
+
+အရေးကြီး: 09899003315 ဆိုသောနံပါတ်ကို လုံးဝမပေးရ - ထိုနံပါတ်မှာ မသုံးတော့ပါ
 
 ငွေလွဲပြီးရင် Transaction History Screenshot နဲ့ ID Number ပေးပို့ပေးပါဟု မေ့မမေ့ ပြောပါ 🙏"""
 
