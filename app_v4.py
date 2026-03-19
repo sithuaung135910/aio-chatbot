@@ -264,24 +264,22 @@ def handle_message(sender_id, message):
     ai_response = get_ai_response(sender_id, message_text)
     send_message(sender_id, ai_response)
 
-def handle_echo_message(recipient_id, message):
+def handle_echo_message(user_id, message):
+    """Called when admin/page sends a message to a user. Pause bot for that user."""
     mid = message.get("mid", "")
     echo_key = f"echo_{mid}"
     with processed_messages_lock:
         if echo_key in processed_messages:
+            logger.info(f"Duplicate echo {mid}, skipping")
             return
         if mid:
             processed_messages.add(echo_key)
     
-    # Check if admin sent "hi" - pause bot for 15 min
-    echo_text = message.get("text", "").strip().lower()
-    if echo_text == "hi":
-        logger.info(f"Admin sent 'hi' to user {recipient_id}, pausing bot for {HUMAN_TAKEOVER_MINUTES} minutes")
-        pause_bot_for_user(recipient_id)
-        return
+    echo_text = message.get("text", "").strip()
+    logger.info(f"Admin sent message to user {user_id}: '{echo_text}' - pausing bot for {HUMAN_TAKEOVER_MINUTES} minutes")
     
-    logger.info(f"Admin replied to user {recipient_id}, pausing bot for {HUMAN_TAKEOVER_MINUTES} minutes")
-    pause_bot_for_user(recipient_id)
+    # Pause bot for ANY admin message (hi, or any other text)
+    pause_bot_for_user(user_id)
 
 def handle_postback(sender_id, payload):
     logger.info(f"Postback from {sender_id}: {payload}")
@@ -328,8 +326,12 @@ def webhook():
                 if "message" in event:
                     message = event["message"]
                     if message.get("is_echo"):
-                        if recipient_id and recipient_id != PAGE_ID:
-                            threading.Thread(target=handle_echo_message, args=(recipient_id, message)).start()
+                        # Admin sent a message - recipient_id is the user being talked to
+                        # sender_id here is the PAGE (admin side)
+                        # We need the user's ID which is in recipient_id
+                        user_id = recipient_id  # The customer's ID
+                        if user_id:
+                            threading.Thread(target=handle_echo_message, args=(user_id, message)).start()
                     else:
                         threading.Thread(target=handle_message, args=(sender_id, message)).start()
                 elif "read" in event:
