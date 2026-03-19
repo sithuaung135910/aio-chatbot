@@ -308,12 +308,28 @@ def verify_webhook():
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    logger.info("=== WEBHOOK POST RECEIVED ===_v4")
+    logger.info("=== WEBHOOK POST RECEIVED ===_v4.12")
     data = request.get_json()
     
     if data.get("object") == "page":
         for entry in data.get("entry", []):
-            for event in entry.get("messaging", []):
+            messaging_events = entry.get("messaging", [])
+            
+            # FIRST PASS: Process all echo messages synchronously
+            # This ensures bot is paused BEFORE we process any client messages
+            for event in messaging_events:
+                if "message" in event and event["message"].get("is_echo"):
+                    sender_id = event.get("sender", {}).get("id")
+                    recipient_id = event.get("recipient", {}).get("id")
+                    # When admin sends: sender=PAGE, recipient=USER
+                    # We pause bot for the USER (recipient)
+                    user_id = recipient_id
+                    if user_id:
+                        logger.info(f"Echo detected: admin sent to user {user_id} - pausing bot immediately")
+                        handle_echo_message(user_id, event["message"])  # SYNCHRONOUS - no thread
+            
+            # SECOND PASS: Process client messages (bot already paused if admin replied)
+            for event in messaging_events:
                 sender_id = event.get("sender", {}).get("id")
                 recipient_id = event.get("recipient", {}).get("id")
                 if not sender_id:
@@ -321,18 +337,10 @@ def webhook():
                 
                 if "message" in event:
                     message = event["message"]
-                    if message.get("is_echo"):
-                        # Admin sent a message - recipient_id is the user being talked to
-                        # sender_id here is the PAGE (admin side)
-                        # We need the user's ID which is in recipient_id
-                        user_id = recipient_id  # The customer's ID
-                        if user_id:
-                            threading.Thread(target=handle_echo_message, args=(user_id, message)).start()
-                    else:
+                    if not message.get("is_echo"):  # Skip echo - already handled above
                         threading.Thread(target=handle_message, args=(sender_id, message)).start()
                 elif "read" in event:
-                    # Ignore read receipts
-                    pass
+                    pass  # Ignore read receipts
                 elif "postback" in event:
                     payload = event["postback"].get("payload", "")
                     threading.Thread(target=handle_postback, args=(sender_id, payload)).start()
