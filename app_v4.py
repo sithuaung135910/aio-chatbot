@@ -49,7 +49,7 @@ MAX_HISTORY_LEN = 10 # Store last 5 user/bot message pairs
 # ============================
 # Human Takeover Feature
 # ============================
-HUMAN_TAKEOVER_MINUTES = 10
+HUMAN_TAKEOVER_MINUTES = 15
 paused_users = {}
 paused_users_lock = threading.Lock()
 
@@ -269,6 +269,13 @@ def handle_echo_message(recipient_id, message):
         if mid:
             processed_messages.add(echo_key)
     
+    # Check if admin sent "hi" - pause bot for 15 min
+    echo_text = message.get("text", "").strip().lower()
+    if echo_text == "hi":
+        logger.info(f"Admin sent 'hi' to user {recipient_id}, pausing bot for {HUMAN_TAKEOVER_MINUTES} minutes")
+        pause_bot_for_user(recipient_id)
+        return
+    
     logger.info(f"Admin replied to user {recipient_id}, pausing bot for {HUMAN_TAKEOVER_MINUTES} minutes")
     pause_bot_for_user(recipient_id)
 
@@ -321,6 +328,9 @@ def webhook():
                             threading.Thread(target=handle_echo_message, args=(recipient_id, message)).start()
                     else:
                         threading.Thread(target=handle_message, args=(sender_id, message)).start()
+                elif "read" in event:
+                    # Ignore read receipts
+                    pass
                 elif "postback" in event:
                     payload = event["postback"].get("payload", "")
                     threading.Thread(target=handle_postback, args=(sender_id, payload)).start()
