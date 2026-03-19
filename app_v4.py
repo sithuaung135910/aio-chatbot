@@ -5,6 +5,7 @@ import logging
 import requests
 import threading
 import time
+from datetime import datetime, timezone, timedelta
 from flask import Flask, request, jsonify
 from openai import OpenAI
 
@@ -45,6 +46,22 @@ GRAPH_API_VERSION = "v21.0"
 conversation_history = {}
 conversation_history_lock = threading.Lock()
 MAX_HISTORY_LEN = 10 # Store last 5 user/bot message pairs
+
+# ============================
+# Lunch Break Feature
+# ============================
+MMT_OFFSET = timedelta(hours=6, minutes=30)  # Myanmar Time = UTC+6:30
+MMT_TZ = timezone(MMT_OFFSET)
+
+def is_lunch_break():
+    """Check if current time is Myanmar Lunch Break: 12:00 PM - 1:00 PM MMT"""
+    now_mmt = datetime.now(MMT_TZ)
+    hour = now_mmt.hour
+    minute = now_mmt.minute
+    # 12:00 PM (noon) to 1:00 PM (13:00)
+    return (hour == 12) or (hour == 13 and minute == 0)
+
+LUNCH_BREAK_REPLY = "ဟုတ်ကဲ့ရှင့် စာပြန်ပေးပါမယ်နော်\n12:00PM ~1:00PM Lunch Break အချိန်လေးမို့\nခဏလေးပဲ စောင့်ပေးပါနော်\nအကြောင်းပြန်ပေးပါမယ်ရှင့်"
 
 # ============================
 # Human Takeover Feature
@@ -254,6 +271,12 @@ def handle_message(sender_id, message):
     
     if is_bot_paused(sender_id):
         logger.info(f"Bot is paused for user {sender_id}, skipping AI response")
+        return
+    
+    # Check if it's Lunch Break time (Myanmar Time 12:00 PM - 1:00 PM)
+    if is_lunch_break():
+        logger.info(f"Lunch break time - sending lunch break reply to {sender_id}")
+        send_message(sender_id, LUNCH_BREAK_REPLY)
         return
     
     send_typing_indicator(sender_id)
